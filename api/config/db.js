@@ -1,4 +1,4 @@
-const mysql = require('mysql');
+const mysql = require("mysql");
 
 const connection = mysql.createConnection({
   host: process.env.DB_HOST,
@@ -8,12 +8,12 @@ const connection = mysql.createConnection({
   database: process.env.DB_NAME
 });
 
-connection.connect(err => {
+connection.connect((err) => {
   if (err) {
-    console.error('❌ Lỗi kết nối MySQL:', err);
+    console.error("❌ Lỗi kết nối MySQL:", err);
     return;
   }
-  console.log('✅ Đã kết nối MySQL thành công!');
+  console.log("✅ Kết nối MySQL thành công!");
 });
 
 module.exports = connection;
