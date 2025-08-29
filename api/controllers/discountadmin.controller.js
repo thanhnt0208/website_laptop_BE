@@ -107,3 +107,24 @@ exports.deleteDiscount = (req, res) => {
     res.json({ message: "Ẩn mã giảm giá thành công" });
   });
 };
+
+// Toggle ẩn/hiện mã giảm giá
+exports.toggleDiscountVisibility = (req, res) => {
+  const { id } = req.params;
+  const { an_hien } = req.body; // 1 = hiện, 0 = ẩn
+
+  if (![0, 1].includes(an_hien)) {
+    return res.status(400).json({ error: "Trạng thái an_hien không hợp lệ" });
+  }
+
+  const sql = "UPDATE ma_giam_gia SET an_hien = ? WHERE id_gg = ?";
+  db.query(sql, [an_hien, id], (err, result) => {
+    if (err) return res.status(500).json({ error: "Lỗi khi cập nhật trạng thái" });
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: "Không tìm thấy mã giảm giá" });
+    }
+
+    res.json({ message: an_hien === 1 ? "Hiện mã giảm giá thành công" : "Ẩn mã giảm giá thành công" });
+  });
+};

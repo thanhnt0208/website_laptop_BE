@@ -9,4 +9,6 @@ router.get('/three-month-revenue-total', dashboard.getTotalRevenueLast3Months);
 router.get('/revenue-by-day-this-month', dashboard.getRevenueByDayThisMonth);
 router.get('/best-selling-products-month', dashboard.getBestSellingProductsThisMonth);
 router.get('/best-selling-3-months', dashboard.getBestSellingProductsLast3Months);
+router.get('/packed-orders-by-employee', dashboard.getPackedOrdersByEmployeeThisMonth);
+router.get('/packed-orders-by-employee-3-months', dashboard.getPackedOrdersByEmployeeLast3Months);
 module.exports = router;

@@ -1,12 +1,29 @@
 const db = require("../config/db.js");
 
-// Lấy tất cả products
+// Lấy tất cả products - admin
 exports.getProducts = (req, res) => {
   db.query("SELECT * FROM sanpham", (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(result);
   });
 };
+exports.getVisibleProducts = (req, res) => {
+  db.query("SELECT * FROM sanpham WHERE an_hien = 1", (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(result);
+  });
+};
+// lấy sản phẩm theo id
+exports.getProductById = (req, res) => {
+  const id_sp = req.params.id_sp;
+
+  db.query("SELECT * FROM sanpham WHERE id_sp = ? AND an_hien=1", [id_sp], (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (result.length === 0) return res.status(404).json({ message: "Không tìm thấy sản phẩm" });
+    res.json(result[0]);
+  });
+};
+
 // lấy 1 sản phẩm
 exports.getProductBySlug = (req, res) => {
   const slug = req.params.slug;
@@ -165,3 +182,50 @@ exports.searchProducts = (req, res) => {
   });
 };
 
+// Ẩn / Hiện sản phẩm
+exports.toggleProductVisibility = (req, res) => {
+  const { id_sp } = req.params;
+  const { an_hien } = req.body; // 1 = hiện, 0 = ẩn
+
+  if (an_hien !== 0 && an_hien !== 1) {
+    return res.status(400).json({ message: "Trạng thái an_hien không hợp lệ!" });
+  }
+
+  const sql = "UPDATE sanpham SET an_hien = ? WHERE id_sp = ?";
+
+  db.query(sql, [an_hien, id_sp], (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Không tìm thấy sản phẩm." });
+    }
+
+    res.json({ message: an_hien === 1 ? "Hiện sản phẩm thành công!" : "Ẩn sản phẩm thành công!" });
+  });
+};
+
+// Tăng lượt xem sản phẩm
+exports.increaseView = (req, res) => {
+  const { id_sp } = req.params;
+  const sql = "UPDATE sanpham SET luot_xem = luot_xem + 1 WHERE id_sp = ?";
+  db.query(sql, [id_sp], (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Không tìm thấy sản phẩm" });
+    }
+    res.json({ message: "Đã tăng lượt xem" });
+  });
+};
+
+// Tăng lượt mua sản phẩm
+exports.increaseBuy = (req, res) => {
+  const { id_sp } = req.params;
+  const sql = "UPDATE sanpham SET luot_mua = luot_mua + 1 WHERE id_sp = ?";
+  db.query(sql, [id_sp], (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Không tìm thấy sản phẩm" });
+    }
+    res.json({ message: "Đã tăng lượt mua" });
+  });
+};

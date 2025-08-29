@@ -8,5 +8,6 @@ router.get("/", discountadminController.getAllDiscounts);
 router.post("/", discountadminController.createDiscount);
 router.delete("/:id", discountadminController.deleteDiscount);
 router.put("/:id", discountadminController.updateDiscount);
+router.put("/:id/visibility", discountadminController.toggleDiscountVisibility);
 
 module.exports = router;

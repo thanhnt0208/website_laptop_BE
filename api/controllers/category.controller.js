@@ -71,3 +71,22 @@ exports.deleteCategory = (req, res) => {
     res.json({ message: "Ẩn danh mục thành công!" });
   });
 };
+
+exports.toggleCategory = (req, res) => {
+  const { id_dm } = req.params;
+
+  // Lấy trạng thái hiện tại
+  db.query("SELECT an_hien FROM danhmuc WHERE id_dm = ?", [id_dm], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (rows.length === 0) return res.status(404).json({ message: "Không tìm thấy danh mục" });
+
+    const currentStatus = rows[0].an_hien;
+    const newStatus = currentStatus === 1 ? 0 : 1;
+
+    // Cập nhật trạng thái mới
+    db.query("UPDATE danhmuc SET an_hien = ? WHERE id_dm = ?", [newStatus, id_dm], (err2) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      res.json({ message: "Cập nhật trạng thái thành công", an_hien: newStatus });
+    });
+  });
+};

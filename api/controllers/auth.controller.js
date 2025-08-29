@@ -39,7 +39,10 @@ exports.registerUser = (req, res) => {
 
     transporter.sendMail(mailOptions, (err2) => {
       if (err2) return res.status(500).json({ error: "Gửi email thất bại" });
-      res.json({ message: "Mã OTP đã được gửi qua email." });
+      res.json({ 
+        message: "Đăng ký thành công, vui lòng kiểm tra email để nhập mã OTP xác minh.",
+        status: "pending"
+      });
     });
   });
 };

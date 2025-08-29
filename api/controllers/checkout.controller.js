@@ -2,18 +2,18 @@ const db = require("../config/db.js");
 
 // ✅ Tạo địa chỉ giao hàng
 exports.createAddress = (req, res) => {
-  const { Ho, Ten, QuocGia, DiaChi, SoNha, Tinh, SDT, Email } = req.body;
+  const { Ho, Ten, QuocGia, DiaChi, SoNha, Tinh, SDT, Email, id_kh } = req.body;
 
-  if (!Ho || !Ten || !DiaChi || !SDT || !Email) {
+  if (!Ho || !Ten || !DiaChi || !SDT || !Email || !id_kh) {
     return res.status(400).json({ error: "Thiếu thông tin bắt buộc" });
   }
 
   const sql = `
-    INSERT INTO address (Ho, Ten, QuocGia, DiaChi, SoNha, Tinh, SDT, Email)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO address (id_kh, Ho, Ten, QuocGia, DiaChi, SoNha, Tinh, SDT, Email)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
-  const params = [Ho, Ten, QuocGia, DiaChi, SoNha, Tinh, SDT, Email];
+  const params = [id_kh, Ho, Ten, QuocGia, DiaChi, SoNha, Tinh, SDT, Email];
 
   db.query(sql, params, (err, result) => {
     if (err) {
@@ -61,6 +61,12 @@ exports.createOrder = (req, res) => {
       }
 
       const id_dh = result.insertId;
+
+      const now = new Date();
+      const maDonHang = `BMB${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}-${id_dh}`;
+
+      db.query(`UPDATE donhang SET ma_don_hang = ? WHERE id_dh = ?`, [maDonHang, id_dh]);
+
 
       const insertChiTiet = (index) => {
         if (index >= cart.length) {

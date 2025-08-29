@@ -52,3 +52,39 @@ exports.getAllDiscounts = (req, res) => {
     res.json(result);
   });
 };
+
+
+
+
+
+exports.saveDiscountForUser = (req, res) => {
+  const { id_kh, id_gg } = req.body;
+  if (!id_kh || !id_gg) return res.status(400).json({ error: "Thiếu thông tin" });
+
+  const sql = "INSERT INTO voucher_user (id_kh, id_gg) VALUES (?, ?)";
+
+  db.query(sql, [id_kh, id_gg], (err) => {
+    if (err) {
+      if (err.code === "ER_DUP_ENTRY") {
+        return res.status(400).json({ error: "Mã đã được lưu trước đó" });
+      }
+      return res.status(500).json({ error: "Lỗi server" });
+    }
+    res.json({ success: true, message: "Đã lưu mã thành công!" });
+  });
+};
+
+// ✅ Lấy tất cả voucher user đã lưu
+exports.getUserDiscounts = (req, res) => {
+  const { id_kh } = req.params;
+  const sql = `
+    SELECT mg.* 
+    FROM voucher_user vu
+    JOIN ma_giam_gia mg ON vu.id_gg = mg.id_gg
+    WHERE vu.id_kh = ?
+  `;
+  db.query(sql, [id_kh], (err, result) => {
+    if (err) return res.status(500).json({ error: "Lỗi server" });
+    res.json(result);
+  });
+};

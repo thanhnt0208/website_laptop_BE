@@ -1,3 +1,4 @@
+// vnpayController.js
 const db = require('../config/db');
 const { VNPay, ignoreLogger, ProductCode, VnpLocale, dateFormat } = require('vnpay');
 
@@ -10,79 +11,30 @@ const vnpay = new VNPay({
   loggerFn: ignoreLogger,
 });
 
-// ✅ Lưu đơn hàng trước khi thanh toán VNPay
-const createOrderBeforeVNPay = (req, callback) => {
-  const { cart, user_id, id_address, discountValue = 0, discountCode } = req.body;
+// ==========================
+// Tạo link thanh toán
+// ==========================
+exports.createPayment = async (req, res) => {
+  try {
+    const { amount, info, user_id, id_address, cart, discountValue = 0, discountCode } = req.body;
 
-  const id_kh = user_id; // 👈 dùng khách hàng
-  const id_nv = null;
+    const txnRef = `${Date.now()}-${user_id}`;
+    global.tempOrders = global.tempOrders || {};
+    global.tempOrders[txnRef] = {
+      user_id,
+      id_address,
+      cart,
+      discountValue,
+      discountCode,
+      createdAt: new Date(),
+      status: 'pending'
+    };
 
-  const tongGoc = cart.reduce((sum, item) => {
-    const gia = item.gia_km ?? item.gia;
-    return sum + gia * item.quantity;
-  }, 0);
-
-  let tongTien = 0;
-  let id_gg = null;
-
-  const proceed = () => {
-    const sql = `INSERT INTO donhang (id_nv, id_kh, id_gg, trang_thai, ngay_dat, trong_tien, dia_chi_gh, payment_method)
-             VALUES (?, ?, ?, ?, NOW(), ?, ?, ?)`;
-    db.query(sql, [id_nv, id_kh, id_gg, 0, 0, id_address, "VNPAY"], (err, result) => {
-      if (err) return callback(err);
-
-      const id_dh = result.insertId;
-
-      const insertChiTiet = (i) => {
-        if (i >= cart.length) {
-          const sqlUpdate = `UPDATE donhang SET trong_tien = ? WHERE id_dh = ?`;
-          db.query(sqlUpdate, [tongTien, id_dh], () => callback(null, id_dh));
-          return;
-        }
-
-        const item = cart[i];
-        const don_gia = item.gia_km ?? item.gia;
-        const goc_tien = don_gia * item.quantity;
-        const ratio = tongGoc > 0 ? goc_tien / tongGoc : 0;
-        const giam = Math.round(discountValue * ratio);
-        const thanh_tien = Math.max(goc_tien - giam, 0);
-        tongTien += thanh_tien;
-
-        const sqlCT = `INSERT INTO chitiet_donhang (id_sp, id_dh, so_luong, don_gia, thanh_tien)
-                       VALUES (?, ?, ?, ?, ?)`;
-        db.query(sqlCT, [item.id_sp, id_dh, item.quantity, don_gia, thanh_tien], () =>
-          insertChiTiet(i + 1)
-        );
-      };
-        
-      insertChiTiet(0);
-    });
-  };
-
-  if (discountCode) {
-    db.query('SELECT * FROM ma_giam_gia WHERE ma_gg = ? AND so_lan_nhap > 0', [discountCode], (err, rs) => {
-      if (rs.length > 0) id_gg = rs[0].id_gg;
-      proceed();
-    });
-  } else {
-    proceed();
-  }
-};
-
-
-
-// ✅ Gọi VNPay sau khi tạo đơn
-exports.createPayment = (req, res) => {
-  createOrderBeforeVNPay(req, async (err, id_dh) => {
-    if (err) return res.status(500).json({ error: 'Tạo đơn hàng thất bại' });
-
-    const { amount, info } = req.body;
-    const txnRef = `${Date.now()}-${id_dh}`;
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     const paymentUrl = await vnpay.buildPaymentUrl({
-      vnp_Amount: amount * 100 / 100,
+      vnp_Amount: amount * 100 /100, // VNPay yêu cầu đơn vị là đồng * 100
       vnp_IpAddr: req.ip || '127.0.0.1',
       vnp_TxnRef: txnRef,
       vnp_OrderInfo: info,
@@ -94,93 +46,131 @@ exports.createPayment = (req, res) => {
     });
 
     res.status(200).json({ url: paymentUrl });
-  });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Tạo link VNPay thất bại' });
+  }
 };
 
-// ✅ Cập nhật trạng thái đơn hàng sau khi thanh toán
+
 exports.paymentReturn = (req, res) => {
-  const vnp_TxnRef = req.query.vnp_TxnRef;
-  const id_dh = parseInt(vnp_TxnRef.split("-")[1]);
+  try {
+    const { vnp_TxnRef, vnp_ResponseCode } = req.query;
+    const orderTemp = global.tempOrders?.[vnp_TxnRef];
 
-  if (!id_dh) {
-    return res.status(400).send("Thiếu mã đơn hàng");
-  }
-
-  // ✅ 1. Cập nhật trạng thái đơn hàng thành "đã thanh toán"
-  const sqlUpdateStatus = `UPDATE donhang SET trang_thai = 1 WHERE id_dh = ?`;
-
-  db.query(sqlUpdateStatus, [id_dh], (err) => {
-    if (err) {
-      console.error("❌ Cập nhật trạng thái đơn hàng thất bại:", err);
-      return res.status(500).send("Lỗi cập nhật trạng thái đơn hàng");
+    if (!orderTemp) {
+      return res.status(400).send("Không tìm thấy dữ liệu đơn hàng tạm");
     }
 
-    // ✅ 2. Lấy danh sách sản phẩm trong đơn hàng
-    const sqlGetDetails = `SELECT id_sp, so_luong FROM chitiet_donhang WHERE id_dh = ?`;
-    db.query(sqlGetDetails, [id_dh], (err2, items) => {
-      if (err2) {
-        console.error("❌ Lỗi truy vấn chi tiết đơn hàng:", err2);
-        return res.status(500).send("Lỗi chi tiết đơn hàng");
-      }
+    if (vnp_ResponseCode !== '00') {
+      orderTemp.status = 'failed';
+      return res.redirect(`http://localhost:3001/checkout?status=failed&orderId=${vnp_TxnRef}`);
+    }
 
-      if (items.length === 0) {
-        console.warn("⚠️ Không có sản phẩm nào trong đơn hàng");
-        return res.redirect("http://localhost:3001/checkout-success");
-      }
+    const { user_id, id_address, cart, discountValue, discountCode } = orderTemp;
+    const id_nv = null;
+    const id_kh = user_id;
+    let tongTien = 0;
+    let id_gg = null;
 
-      // ✅ 3. Trừ tồn kho từng sản phẩm
-      const updateStock = (i) => {
-        if (i >= items.length) {
-          // Khi trừ xong kho -> Kiểm tra mã giảm giá
-          return updateDiscountIfExists();
+    const tongGoc = cart.reduce((sum, item) => {
+      const gia = item.gia_km ?? item.gia;
+      return sum + gia * item.quantity;
+    }, 0);
+
+    const saveOrder = () => {
+      const sql = `INSERT INTO donhang (id_nv, id_kh, id_gg, trang_thai, ngay_dat, trong_tien, dia_chi_gh, payment_method)
+                   VALUES (?, ?, ?, ?, NOW(), ?, ?, ?)`;
+      db.query(sql, [id_nv, id_kh, id_gg, 1, 0, id_address, "VNPAY"], (err, result) => {
+        if (err) {
+          console.error(err);
+          return res.status(500).send("Lưu đơn hàng thất bại");
         }
 
-        const item = items[i];
-        const sqlUpdateStock = `
-          UPDATE sanpham
-          SET so_luong = GREATEST(so_luong - ?, 0)
-          WHERE id_sp = ?
-        `;
-        db.query(sqlUpdateStock, [item.so_luong, item.id_sp], (err3) => {
-          if (err3) {
-            console.error(`❌ Lỗi trừ số lượng sản phẩm ID ${item.id_sp}:`, err3);
-          }
-          updateStock(i + 1); // tiếp tục sản phẩm tiếp theo
-        });
-      };
+        const id_dh = result.insertId;
 
-      updateStock(0);
-    });
+       const now = new Date();
+      const maDonHang = `BMB${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}-${id_dh}`;
+      db.query(`UPDATE donhang SET ma_don_hang = ? WHERE id_dh = ?`, [maDonHang, id_dh]);
 
-    // ✅ 4. Trừ lượt mã giảm giá nếu có
-    const updateDiscountIfExists = () => {
-      const sqlGetDiscount = `SELECT id_gg FROM donhang WHERE id_dh = ? AND id_gg IS NOT NULL`;
 
-      db.query(sqlGetDiscount, [id_dh], (err4, rows) => {
-        if (err4) {
-          console.error("❌ Lỗi khi kiểm tra mã giảm giá:", err4);
-          return res.redirect("http://localhost:3001");
-        }
-
-        if (rows.length > 0) {
-          const id_gg = rows[0].id_gg;
-          const sqlUpdateDiscount = `
-            UPDATE ma_giam_gia
-            SET so_lan_nhap = GREATEST(so_lan_nhap - 1, 0)
-            WHERE id_gg = ?
-          `;
-          db.query(sqlUpdateDiscount, [id_gg], (err5) => {
-            if (err5) {
-              console.error("❌ Lỗi trừ lượt mã giảm giá:", err5);
+        // 🔹 Trừ lượt dùng mã giảm giá nếu có
+        if (discountCode) {
+          db.query(
+            `UPDATE ma_giam_gia SET so_lan_nhap = so_lan_nhap - 1 
+             WHERE ma_gg = ? AND so_lan_nhap > 0`,
+            [discountCode],
+            (err2) => {
+              if (err2) console.error("Lỗi trừ lượt mã giảm giá:", err2);
             }
-            return res.redirect("http://localhost:3001");
-          });
-        } else {
-          return res.redirect("http://localhost:3001");
+          );
         }
+
+        const insertChiTiet = (i) => {
+          if (i >= cart.length) {
+            db.query(`UPDATE donhang SET trong_tien = ? WHERE id_dh = ?`, [tongTien, id_dh], () => {
+              delete global.tempOrders[vnp_TxnRef];
+              db.query(`DELETE FROM giohang WHERE id_kh = ?`, [id_kh], () => {
+                res.redirect("http://localhost:3001/checkout?status=success");
+              });
+            });
+            return;
+          }
+
+          const item = cart[i];
+          const don_gia = item.gia_km ?? item.gia;
+          const goc_tien = don_gia * item.quantity;
+          const ratio = tongGoc > 0 ? goc_tien / tongGoc : 0;
+          const giam = Math.round(discountValue * ratio);
+          const thanh_tien = Math.max(goc_tien - giam, 0);
+          tongTien += thanh_tien;
+
+          db.query(
+            `INSERT INTO chitiet_donhang (id_sp, id_dh, so_luong, don_gia, thanh_tien)
+             VALUES (?, ?, ?, ?, ?)`,
+            [item.id_sp, id_dh, item.quantity, don_gia, thanh_tien],
+            (err3) => {
+              if (err3) console.error("Lỗi thêm chi tiết:", err3);
+
+              db.query(
+                `UPDATE sanpham SET so_luong = so_luong - ? WHERE id_sp = ? AND so_luong >= ?`,
+                [item.quantity, item.id_sp, item.quantity],
+                (err4) => {
+                  if (err4) console.error("Lỗi trừ số lượng sp:", err4);
+                  insertChiTiet(i + 1);
+                }
+              );
+            }
+          );
+        };
+
+        insertChiTiet(0);
       });
     };
-  });
+
+    // Lấy id_gg nếu có
+    if (discountCode) {
+      db.query('SELECT * FROM ma_giam_gia WHERE ma_gg = ? AND so_lan_nhap > 0', [discountCode], (err, rs) => {
+        if (rs.length > 0) id_gg = rs[0].id_gg;
+        saveOrder();
+      });
+    } else {
+      saveOrder();
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).send("Lỗi xử lý thanh toán");
+  }
+};
+
+
+// API lấy lại đơn hàng tạm
+exports.getTempOrder = (req, res) => {
+  const { orderId } = req.query;
+  if (global.tempOrders && global.tempOrders[orderId]) {
+    return res.json(global.tempOrders[orderId]);
+  }
+  res.status(404).json({ error: "Không tìm thấy đơn hàng tạm" });
 };
 
 
